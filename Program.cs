@@ -63,7 +63,7 @@ namespace BasicLetsEncrypt
             var identifier = Path.GetFileNameWithoutExtension(Args.ConfigPath);
             var cfg = Args.Config;
 
-            Console.WriteLine($"This will create/renew a LetsEncrypt wildcard certificate for *.{cfg.Domain}");
+            Console.WriteLine($"This will create/renew a LetsEncrypt certificate for {cfg.Domain}");
             PressYToContinue();
 
             // https://community.letsencrypt.org/t/what-are-accounts-do-i-need-to-backup-them/21318/2
@@ -71,13 +71,13 @@ namespace BasicLetsEncrypt
             var acme = new AcmeContext(WellKnownServers.LetsEncryptV2);
             await acme.NewAccount(cfg.NotifyEmail, true);
 
-            var commonName = $"*.{cfg.Domain}";
+            var commonName = cfg.Domain;
             var order = await acme.NewOrder(new[] { commonName });
             var authz = (await order.Authorizations()).First();
             var challenge = await authz.Dns();
             Console.WriteLine();
             Console.WriteLine("DNS challenge required:");
-            Console.WriteLine($"    update TXT record for _acme-challenge.{cfg.Domain}");
+            Console.WriteLine($"    update TXT record for _acme-challenge.{cfg.Domain.Replace("*.", "")}");
             Console.WriteLine($"    {acme.AccountKey.DnsTxt(challenge.Token)}");
             Console.WriteLine();
             PressYToContinue();
@@ -89,7 +89,7 @@ namespace BasicLetsEncrypt
                 CountryName = cfg.CountryName,
                 State = cfg.State,
                 Locality = cfg.Locality,
-                Organization = cfg.Domain,
+                Organization = cfg.Domain.Replace("*.", ""),
                 OrganizationUnit = "IT",
                 CommonName = commonName,
             }, privateKey);
@@ -113,6 +113,7 @@ namespace BasicLetsEncrypt
         {
             do { Console.WriteLine("Press Y to continue..."); }
             while (Console.ReadKey(true).Key != ConsoleKey.Y);
+            Console.WriteLine("Please wait...");
         }
     }
 }
