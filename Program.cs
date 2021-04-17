@@ -27,7 +27,7 @@ namespace LetsEncryptWildcardRegen
             if (!File.Exists(ConfigPath))
             {
                 var cfg = new Config { Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
-                File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(cfg));
+                File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(cfg, Formatting.Indented));
                 return CommandLineParser.Colorize(RhoML.Parse($"Config file not found: {{h}}{ConfigPath}{{}}\r\n\r\nA template file has been created at the above path."));
             }
 
