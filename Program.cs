@@ -9,9 +9,9 @@ using RT.CommandLine;
 using RT.Util;
 using RT.Util.Consoles;
 
-namespace LetsEncryptWildcardRegen
+namespace BasicLetsEncrypt
 {
-    [Documentation("Obtains or renews a wildcard certificate via LetsEncrypt using manual DNS validation.")]
+    [Documentation("Obtains or renews an SSL certificate via LetsEncrypt using manual DNS validation.")]
     class CmdLine : ICommandLineValidatable
     {
         [DocumentationRhoML("{h}Path to the config file describing the certificate.{}\r\nOutput files are created in the same directory and with the same file name as the config file (varying extensions). If this config file does not exist, a template file is created and the program exits with an error.")]
