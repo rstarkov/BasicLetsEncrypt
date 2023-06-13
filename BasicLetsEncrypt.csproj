@@ -2,12 +2,12 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp3.1</TargetFramework>
+    <TargetFramework>net7.0</TargetFramework>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Certes" Version="2.3.4" />
-    <PackageReference Include="RT.CommandLine" Version="2.0.1686" />
+    <PackageReference Include="Certes" Version="3.0.4" />
+    <PackageReference Include="RT.CommandLine" Version="2.0.1744" />
   </ItemGroup>
 
 </Project>

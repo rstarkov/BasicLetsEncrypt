@@ -1,6 +1,7 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Certes;
 using Certes.Acme;
@@ -82,6 +83,8 @@ namespace BasicLetsEncrypt
             Console.WriteLine();
             PressYToContinue();
             await challenge.Validate();
+            Thread.Sleep(10000);
+            Console.WriteLine("Validation complete");
 
             var privateKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
             var cert = await order.Generate(new CsrInfo
