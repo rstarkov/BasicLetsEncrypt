@@ -19,7 +19,6 @@ namespace BasicLetsEncrypt
         [IsPositional, IsMandatory]
         public string ConfigPath;
 
-        [Ignore]
         public Config Config;
 
         public ConsoleColoredString Validate()
