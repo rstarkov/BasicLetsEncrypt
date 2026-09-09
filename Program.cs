@@ -4,37 +4,8 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
-using RT.CommandLine;
-using RT.Util;
-using RT.Util.Consoles;
 
 namespace BasicLetsEncrypt;
-
-[Documentation("Obtains or renews an SSL certificate via LetsEncrypt using manual DNS validation.")]
-class CmdLine : ICommandLineValidatable
-{
-    [DocumentationRhoML("{h}Path to the config file describing the certificate.{}\r\nOutput files are created in the same directory and with the same file name as the config file (varying extensions). If this config file does not exist, a template file is created and the program exits with an error.")]
-    [IsPositional, IsMandatory]
-    public string ConfigPath;
-
-    public Config Config;
-
-    public ConsoleColoredString Validate()
-    {
-        ConfigPath = Path.GetFullPath(ConfigPath);
-        if (!File.Exists(ConfigPath))
-        {
-            var cfg = new Config { Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
-            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true }));
-            return CommandLineParser.Colorize(RhoML.Parse($"Config file not found: {{h}}{ConfigPath}{{}}\r\n\r\nA template file has been created at the above path."));
-        }
-
-        try { Config = JsonSerializer.Deserialize<Config>(File.ReadAllText(ConfigPath), new JsonSerializerOptions { ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }); }
-        catch { return CommandLineParser.Colorize(RhoML.Parse($"Could not parse config file: {{h}}{ConfigPath}{{}}")); }
-
-        return null;
-    }
-}
 
 class Config
 {
@@ -49,17 +20,17 @@ class Config
 
 class Program
 {
-    static CmdLine Args;
-
     static async Task<int> Main(string[] args)
     {
-        Args = CommandLineParser.ParseOrWriteUsageToConsole<CmdLine>(args);
-        if (Args == null)
+        var cmd = CmdLine.Parse(args);
+        if (cmd == null)
+            return 1;
+        var cfg = LoadConfig(cmd.ConfigPath);
+        if (cfg == null)
             return 1;
 
-        var outputPath = Path.GetDirectoryName(Args.ConfigPath);
-        var identifier = Path.GetFileNameWithoutExtension(Args.ConfigPath);
-        var cfg = Args.Config;
+        var outputPath = Path.GetDirectoryName(cmd.ConfigPath);
+        var identifier = Path.GetFileNameWithoutExtension(cmd.ConfigPath);
 
         Console.WriteLine($"This will create/renew a LetsEncrypt certificate for {cfg.Domain}");
         PressYToContinue();
@@ -105,6 +76,32 @@ class Program
         Console.WriteLine($"Certificate files saved to: {outputPath}\\{identifier}.*");
 
         return 0;
+    }
+
+    /// <summary>
+    ///     Loads the config file. If it doesn't exist, creates a template in its place; if it can't be parsed, reports the
+    ///     error. Returns null in either case.</summary>
+    private static Config LoadConfig(string path)
+    {
+        if (!File.Exists(path))
+        {
+            var template = new Config { Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
+            File.WriteAllText(path, JsonSerializer.Serialize(template, new JsonSerializerOptions { WriteIndented = true }));
+            Console.WriteLine($"Config file not found: {path}");
+            Console.WriteLine();
+            Console.WriteLine("A template file has been created at the above path.");
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<Config>(File.ReadAllText(path), new JsonSerializerOptions { ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+        }
+        catch
+        {
+            Console.WriteLine($"Could not parse config file: {path}");
+            return null;
+        }
     }
 
     private static void PressYToContinue()

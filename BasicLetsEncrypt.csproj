@@ -5,8 +5,4 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="RT.CommandLine" Version="2.2.193" />
-  </ItemGroup>
-
 </Project>
