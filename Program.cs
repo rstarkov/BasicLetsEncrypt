@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
@@ -30,6 +31,11 @@ class Config
     public string CountryName { get; set; }
     public string State { get; set; }
     public string Locality { get; set; }
+
+    /// <summary>
+    ///     If set, the run exits successfully without doing anything when the previously saved certificate has more than this
+    ///     many days left before it expires.</summary>
+    public int? SkipIfMoreThanDaysLeft { get; set; }
 }
 
 class Program
@@ -65,6 +71,24 @@ class Program
     {
         var outputPath = Path.GetDirectoryName(cmd.ConfigPath);
         var identifier = Path.GetFileNameWithoutExtension(cmd.ConfigPath);
+        var crtPath = Path.Combine(outputPath, $"{identifier}.crt");
+
+        if (cfg.SkipIfMoreThanDaysLeft != null && File.Exists(crtPath))
+        {
+            DateTime? expiry = null;
+            try { expiry = X509Certificate2.CreateFromPem(File.ReadAllText(crtPath)).NotAfter.ToUniversalTime(); }
+            catch (Exception e) { Console.WriteLine($"Could not read the existing certificate at {crtPath} ({e.Message}); renewing."); }
+            if (expiry != null)
+            {
+                var daysLeft = (expiry.Value - DateTime.UtcNow).TotalDays;
+                Console.WriteLine($"Existing certificate expires on {expiry:yyyy-MM-dd} ({daysLeft:0} days left).");
+                if (daysLeft > cfg.SkipIfMoreThanDaysLeft)
+                {
+                    Console.WriteLine($"More than {cfg.SkipIfMoreThanDaysLeft} days left; nothing to do.");
+                    return;
+                }
+            }
+        }
 
         Console.WriteLine($"This will create/renew a LetsEncrypt certificate for {cfg.Domain}");
         if (cfg.Challenge != ChallengeMode.HttpAuto) // unattended mode: nobody is there to confirm
@@ -122,7 +146,7 @@ class Program
         var chain = await acme.DownloadCertificate(order.Certificate);
 
         File.WriteAllText(Path.Combine(outputPath, $"{identifier}.ca-bundle"), string.Join("\r\n", chain.Skip(1).Select(c => c.ExportCertificatePem())));
-        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.crt"), chain[0].ExportCertificatePem());
+        File.WriteAllText(crtPath, chain[0].ExportCertificatePem());
         File.WriteAllText(Path.Combine(outputPath, $"{identifier}.private.key"), privateKey.ExportECPrivateKeyPem());
         if (cfg.PfxPassword != null)
             File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), Pki.ToPfx(chain, privateKey, identifier, cfg.PfxPassword));
@@ -137,7 +161,7 @@ class Program
     {
         if (!File.Exists(path))
         {
-            var template = new Config { Challenge = ChallengeMode.Dns, Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
+            var template = new Config { Challenge = ChallengeMode.Dns, Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London", SkipIfMoreThanDaysLeft = 30 };
             File.WriteAllText(path, JsonSerializer.Serialize(template, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Config file not found: {path}");
             Console.WriteLine();
