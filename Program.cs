@@ -147,6 +147,7 @@ class Program
 
         File.WriteAllText(Path.Combine(outputPath, $"{identifier}.ca-bundle"), string.Join("\r\n", chain.Skip(1).Select(c => c.ExportCertificatePem())));
         File.WriteAllText(crtPath, chain[0].ExportCertificatePem());
+        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.pem"), string.Join("\r\n", chain.Select(c => c.ExportCertificatePem()))); // certificate first, then the chain
         File.WriteAllText(Path.Combine(outputPath, $"{identifier}.private.key"), privateKey.ExportECPrivateKeyPem());
         if (cfg.PfxPassword != null)
             File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), Pki.ToPfx(chain, privateKey, identifier, cfg.PfxPassword));
