@@ -65,17 +65,26 @@ class AcmeClient
         }
     }
 
-    public async Task<AcmeChallenge> GetDnsChallenge(string authorizationUrl)
+    /// <summary>Retrieves the challenge of the specified type ("dns-01" or "http-01") from an authorization.</summary>
+    public async Task<AcmeChallenge> GetChallenge(string authorizationUrl, string type)
     {
         var json = await ReadJson(await Post(authorizationUrl, null));
-        var challenge = json.GetProperty("challenges").EnumerateArray().First(c => c.GetProperty("type").GetString() == "dns-01");
+        var challenge = json.GetProperty("challenges").EnumerateArray().FirstOrDefault(c => c.GetProperty("type").GetString() == type);
+        if (challenge.ValueKind == JsonValueKind.Undefined)
+            throw new AcmeException($"The server did not offer a {type} challenge for this authorization.");
         return new AcmeChallenge(challenge.GetProperty("url").GetString(), challenge.GetProperty("token").GetString());
+    }
+
+    /// <summary>Computes the key authorization for a challenge token: the content to serve for an HTTP-01 challenge.</summary>
+    public string KeyAuthorization(string token)
+    {
+        return token + "." + Thumbprint();
     }
 
     /// <summary>Computes the value of the _acme-challenge TXT record for a DNS-01 challenge token.</summary>
     public string DnsTxt(string token)
     {
-        return Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(token + "." + Thumbprint())));
+        return Base64Url(SHA256.HashData(Encoding.UTF8.GetBytes(KeyAuthorization(token))));
     }
 
     /// <summary>Tells the server that the challenge is ready to be validated.</summary>

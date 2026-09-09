@@ -28,6 +28,11 @@ class Program
         var cfg = LoadConfig(cmd.ConfigPath);
         if (cfg == null)
             return 1;
+        if (cmd.Mode != ChallengeMode.Dns && cfg.Domain.StartsWith("*."))
+        {
+            Console.WriteLine("Wildcard certificates can only be validated via the DNS challenge.");
+            return 1;
+        }
 
         var outputPath = Path.GetDirectoryName(cmd.ConfigPath);
         var identifier = Path.GetFileNameWithoutExtension(cmd.ConfigPath);
@@ -42,15 +47,34 @@ class Program
 
         var commonName = cfg.Domain;
         var order = await acme.NewOrder(commonName);
-        var challenge = await acme.GetDnsChallenge(order.Authorizations.First());
+        var challenge = await acme.GetChallenge(order.Authorizations.First(), cmd.Mode == ChallengeMode.Dns ? "dns-01" : "http-01");
+        var challengePath = $"/.well-known/acme-challenge/{challenge.Token}";
+        HttpChallengeServer server = null;
         Console.WriteLine();
-        Console.WriteLine("DNS challenge required:");
-        Console.WriteLine($"    update TXT record for _acme-challenge.{cfg.Domain.Replace("*.", "")}");
-        Console.WriteLine($"    {acme.DnsTxt(challenge.Token)}");
-        Console.WriteLine();
-        PressYToContinue();
+        switch (cmd.Mode)
+        {
+            case ChallengeMode.Dns:
+                Console.WriteLine("DNS challenge required:");
+                Console.WriteLine($"    update TXT record for _acme-challenge.{cfg.Domain.Replace("*.", "")}");
+                Console.WriteLine($"    {acme.DnsTxt(challenge.Token)}");
+                Console.WriteLine();
+                PressYToContinue();
+                break;
+            case ChallengeMode.Http:
+                Console.WriteLine("HTTP challenge required:");
+                Console.WriteLine($"    serve the following content at http://{cfg.Domain}{challengePath}");
+                Console.WriteLine($"    {acme.KeyAuthorization(challenge.Token)}");
+                Console.WriteLine();
+                PressYToContinue();
+                break;
+            case ChallengeMode.HttpAuto:
+                server = new HttpChallengeServer(cfg.Domain, challengePath, acme.KeyAuthorization(challenge.Token));
+                Console.WriteLine($"Serving HTTP challenge at http://{cfg.Domain}{challengePath}");
+                break;
+        }
         await acme.Validate(challenge.Url);
         order = await acme.WaitWhileOrderIs(order.Url, "pending");
+        server?.Dispose();
         Console.WriteLine("Validation complete");
 
         var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
