@@ -36,6 +36,11 @@ class Config
     ///     If set, the run exits successfully without doing anything when the previously saved certificate has more than this
     ///     many days left before it expires.</summary>
     public int? SkipIfMoreThanDaysLeft { get; set; }
+
+    /// <summary>
+    ///     If set, the Windows service with this name is restarted after a certificate has been renewed. The run fails if the
+    ///     service does not exist, does not stop, or does not start.</summary>
+    public string RestartService { get; set; }
 }
 
 class Program
@@ -62,7 +67,7 @@ class Program
         catch (Exception e)
         {
             Console.WriteLine();
-            Console.WriteLine(e is AcmeException ? $"Error: {e.Message}" : $"Error: {e}");
+            Console.WriteLine(e is AcmeException or ServiceControlException ? $"Error: {e.Message}" : $"Error: {e}");
             return 1;
         }
     }
@@ -153,6 +158,9 @@ class Program
             File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), Pki.ToPfx(chain, privateKey, identifier, cfg.PfxPassword));
 
         Console.WriteLine($"Certificate files saved to: {outputPath}\\{identifier}.*");
+
+        if (cfg.RestartService != null)
+            ServiceControl.Restart(cfg.RestartService);
     }
 
     /// <summary>
@@ -162,7 +170,7 @@ class Program
     {
         if (!File.Exists(path))
         {
-            var template = new Config { Challenge = ChallengeMode.Dns, Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London", SkipIfMoreThanDaysLeft = 30 };
+            var template = new Config { Challenge = ChallengeMode.Dns, Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London", SkipIfMoreThanDaysLeft = 30, RestartService = null };
             File.WriteAllText(path, JsonSerializer.Serialize(template, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Config file not found: {path}");
             Console.WriteLine();
