@@ -3,12 +3,26 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace BasicLetsEncrypt;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
+enum ChallengeMode
+{
+    /// <summary>DNS-01 challenge; the user creates the TXT record manually.</summary>
+    Dns,
+    /// <summary>HTTP-01 challenge; the user places the challenge file on the web server manually.</summary>
+    Http,
+    /// <summary>HTTP-01 challenge served by this program on port 80, without any user interaction.</summary>
+    HttpAuto,
+}
+
 class Config
 {
+    [JsonRequired]
+    public ChallengeMode Challenge { get; set; }
     public string Domain { get; set; }
     public string NotifyEmail { get; set; }
     public string PfxPassword { get; set; }
@@ -28,7 +42,7 @@ class Program
         var cfg = LoadConfig(cmd.ConfigPath);
         if (cfg == null)
             return 1;
-        if (cmd.Mode != ChallengeMode.Dns && cfg.Domain.StartsWith("*."))
+        if (cfg.Challenge != ChallengeMode.Dns && cfg.Domain.StartsWith("*."))
         {
             Console.WriteLine("Wildcard certificates can only be validated via the DNS challenge.");
             return 1;
@@ -53,7 +67,7 @@ class Program
         var identifier = Path.GetFileNameWithoutExtension(cmd.ConfigPath);
 
         Console.WriteLine($"This will create/renew a LetsEncrypt certificate for {cfg.Domain}");
-        if (cmd.Mode != ChallengeMode.HttpAuto) // unattended mode: nobody is there to confirm
+        if (cfg.Challenge != ChallengeMode.HttpAuto) // unattended mode: nobody is there to confirm
             PressYToContinue();
 
         // https://community.letsencrypt.org/t/what-are-accounts-do-i-need-to-backup-them/21318/2
@@ -63,11 +77,11 @@ class Program
 
         var commonName = cfg.Domain;
         var order = await acme.NewOrder(commonName);
-        var challenge = await acme.GetChallenge(order.Authorizations.First(), cmd.Mode == ChallengeMode.Dns ? "dns-01" : "http-01");
+        var challenge = await acme.GetChallenge(order.Authorizations.First(), cfg.Challenge == ChallengeMode.Dns ? "dns-01" : "http-01");
         var challengePath = $"/.well-known/acme-challenge/{challenge.Token}";
         HttpChallengeServer server = null;
         Console.WriteLine();
-        switch (cmd.Mode)
+        switch (cfg.Challenge)
         {
             case ChallengeMode.Dns:
                 Console.WriteLine("DNS challenge required:");
@@ -123,7 +137,7 @@ class Program
     {
         if (!File.Exists(path))
         {
-            var template = new Config { Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
+            var template = new Config { Challenge = ChallengeMode.Dns, Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
             File.WriteAllText(path, JsonSerializer.Serialize(template, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"Config file not found: {path}");
             Console.WriteLine();
