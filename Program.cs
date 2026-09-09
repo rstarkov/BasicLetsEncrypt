@@ -5,7 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Certes;
 using Certes.Acme;
-using Newtonsoft.Json;
+using System.Text.Json;
 using RT.CommandLine;
 using RT.Util;
 using RT.Util.Consoles;
@@ -27,11 +27,11 @@ class CmdLine : ICommandLineValidatable
         if (!File.Exists(ConfigPath))
         {
             var cfg = new Config { Domain = "example.com", NotifyEmail = "me@example.com", PfxPassword = "asdf", CountryName = "GB", Locality = "London", State = "London" };
-            File.WriteAllText(ConfigPath, JsonConvert.SerializeObject(cfg, Formatting.Indented));
+            File.WriteAllText(ConfigPath, JsonSerializer.Serialize(cfg, new JsonSerializerOptions { WriteIndented = true }));
             return CommandLineParser.Colorize(RhoML.Parse($"Config file not found: {{h}}{ConfigPath}{{}}\r\n\r\nA template file has been created at the above path."));
         }
 
-        try { Config = JsonConvert.DeserializeObject<Config>(File.ReadAllText(ConfigPath)); }
+        try { Config = JsonSerializer.Deserialize<Config>(File.ReadAllText(ConfigPath), new JsonSerializerOptions { ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }); }
         catch { return CommandLineParser.Colorize(RhoML.Parse($"Could not parse config file: {{h}}{ConfigPath}{{}}")); }
 
         return null;
