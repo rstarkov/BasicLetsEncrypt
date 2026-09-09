@@ -6,7 +6,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Certes" Version="3.0.4" />
     <PackageReference Include="RT.CommandLine" Version="2.2.193" />
   </ItemGroup>
 

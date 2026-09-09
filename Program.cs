@@ -1,11 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using Certes;
-using Certes.Acme;
+using System.Security.Cryptography;
 using System.Text.Json;
+using System.Threading.Tasks;
 using RT.CommandLine;
 using RT.Util;
 using RT.Util.Consoles;
@@ -68,25 +66,24 @@ class Program
 
         // https://community.letsencrypt.org/t/what-are-accounts-do-i-need-to-backup-them/21318/2
         // We won't try to preserve the account key, and will simply create a new one every time.
-        var acme = new AcmeContext(WellKnownServers.LetsEncryptV2);
-        await acme.NewAccount(cfg.NotifyEmail, true);
+        var acme = new AcmeClient(AcmeClient.LetsEncryptV2);
+        await acme.NewAccount(cfg.NotifyEmail);
 
         var commonName = cfg.Domain;
-        var order = await acme.NewOrder(new[] { commonName });
-        var authz = (await order.Authorizations()).First();
-        var challenge = await authz.Dns();
+        var order = await acme.NewOrder(commonName);
+        var challenge = await acme.GetDnsChallenge(order.Authorizations.First());
         Console.WriteLine();
         Console.WriteLine("DNS challenge required:");
         Console.WriteLine($"    update TXT record for _acme-challenge.{cfg.Domain.Replace("*.", "")}");
-        Console.WriteLine($"    {acme.AccountKey.DnsTxt(challenge.Token)}");
+        Console.WriteLine($"    {acme.DnsTxt(challenge.Token)}");
         Console.WriteLine();
         PressYToContinue();
-        await challenge.Validate();
-        Thread.Sleep(10000);
+        await acme.Validate(challenge.Url);
+        order = await acme.WaitWhileOrderIs(order.Url, "pending");
         Console.WriteLine("Validation complete");
 
-        var privateKey = KeyFactory.NewKey(KeyAlgorithm.ES256);
-        var cert = await order.Generate(new CsrInfo
+        var privateKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var csr = Pki.CreateCsr(new CsrInfo
         {
             CountryName = cfg.CountryName,
             State = cfg.State,
@@ -95,16 +92,15 @@ class Program
             OrganizationUnit = "IT",
             CommonName = commonName,
         }, privateKey);
+        await acme.Finalize(order.Finalize, csr);
+        order = await acme.WaitWhileOrderIs(order.Url, "processing");
+        var chain = await acme.DownloadCertificate(order.Certificate);
 
-        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.ca-bundle"), string.Join("\r\n", cert.Issuers.Select(s => s.ToPem())));
-        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.crt"), cert.Certificate.ToPem());
-        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.private.key"), privateKey.ToPem());
+        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.ca-bundle"), string.Join("\r\n", chain.Skip(1).Select(c => c.ExportCertificatePem())));
+        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.crt"), chain[0].ExportCertificatePem());
+        File.WriteAllText(Path.Combine(outputPath, $"{identifier}.private.key"), privateKey.ExportECPrivateKeyPem());
         if (cfg.PfxPassword != null)
-        {
-            var pfxBuilder = cert.ToPfx(privateKey);
-            var pfx = pfxBuilder.Build(identifier, cfg.PfxPassword);
-            File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), pfx);
-        }
+            File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), Pki.ToPfx(chain, privateKey, identifier, cfg.PfxPassword));
 
         Console.WriteLine($"Certificate files saved to: {outputPath}\\{identifier}.*");
 
