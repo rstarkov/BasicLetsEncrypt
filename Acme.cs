@@ -57,7 +57,7 @@ class AcmeClient
         {
             var order = await GetOrder(orderUrl);
             if (order.Status == "invalid")
-                throw new AcmeException($"Order {orderUrl} is invalid.");
+                throw new AcmeException($"Order {orderUrl} is invalid.{await DescribeChallengeErrors(order)}");
             if (order.Status != status)
                 return order;
             if (attempt >= 60)
@@ -67,6 +67,26 @@ class AcmeClient
     }
 
     /// <summary>Retrieves the challenge of the specified type ("dns-01" or "http-01") from an authorization.</summary>
+    /// <summary>
+    ///     Collects the error reported by the server for every failed challenge in the order's authorizations, as text to
+    ///     append to an error message. Empty if there are none, or if they can't be retrieved.</summary>
+    private async Task<string> DescribeChallengeErrors(AcmeOrder order)
+    {
+        var result = new StringBuilder();
+        try
+        {
+            foreach (var authorizationUrl in order.Authorizations)
+            {
+                var json = await ReadJson(await Post(authorizationUrl, null));
+                foreach (var challenge in json.GetProperty("challenges").EnumerateArray())
+                    if (challenge.TryGetProperty("error", out var error))
+                        result.Append($"{Environment.NewLine}{challenge.GetProperty("type").GetString()} challenge error: {error}");
+            }
+        }
+        catch (Exception e) { result.Append($"{Environment.NewLine}(could not retrieve the challenge errors: {e.Message})"); }
+        return result.ToString();
+    }
+
     public async Task<AcmeChallenge> GetChallenge(string authorizationUrl, string type)
     {
         var json = await ReadJson(await Post(authorizationUrl, null));
