@@ -34,11 +34,27 @@ class Program
             return 1;
         }
 
+        try
+        {
+            await Run(cmd, cfg);
+            return 0;
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine();
+            Console.WriteLine(e is AcmeException ? $"Error: {e.Message}" : $"Error: {e}");
+            return 1;
+        }
+    }
+
+    private static async Task Run(CmdLine cmd, Config cfg)
+    {
         var outputPath = Path.GetDirectoryName(cmd.ConfigPath);
         var identifier = Path.GetFileNameWithoutExtension(cmd.ConfigPath);
 
         Console.WriteLine($"This will create/renew a LetsEncrypt certificate for {cfg.Domain}");
-        PressYToContinue();
+        if (cmd.Mode != ChallengeMode.HttpAuto) // unattended mode: nobody is there to confirm
+            PressYToContinue();
 
         // https://community.letsencrypt.org/t/what-are-accounts-do-i-need-to-backup-them/21318/2
         // We won't try to preserve the account key, and will simply create a new one every time.
@@ -98,8 +114,6 @@ class Program
             File.WriteAllBytes(Path.Combine(outputPath, $"{identifier}.pfx"), Pki.ToPfx(chain, privateKey, identifier, cfg.PfxPassword));
 
         Console.WriteLine($"Certificate files saved to: {outputPath}\\{identifier}.*");
-
-        return 0;
     }
 
     /// <summary>

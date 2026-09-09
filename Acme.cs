@@ -29,6 +29,7 @@ class AcmeClient
     {
         _directoryUrl = directoryUrl;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("BasicLetsEncrypt/1.0");
+        _http.Timeout = TimeSpan.FromSeconds(30); // short enough to allow several attempts within the retry window
     }
 
     /// <summary>Creates a new account with the given contact email, agreeing to the terms of service.</summary>
@@ -111,7 +112,8 @@ class AcmeClient
     {
         if (_directory == null)
         {
-            using var doc = JsonDocument.Parse(await _http.GetStringAsync(_directoryUrl));
+            var response = await Send(() => Task.FromResult(new HttpRequestMessage(HttpMethod.Get, _directoryUrl)));
+            using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
             _directory = doc.RootElement.EnumerateObject().Where(p => p.Value.ValueKind == JsonValueKind.String).ToDictionary(p => p.Name, p => p.Value.GetString());
         }
         return _directory;
@@ -120,10 +122,7 @@ class AcmeClient
     private async Task<string> TakeNonce()
     {
         if (_nonce == null)
-        {
-            var response = await _http.SendAsync(new HttpRequestMessage(HttpMethod.Head, (await Directory())["newNonce"]));
-            _nonce = response.Headers.GetValues("Replay-Nonce").First();
-        }
+            await Send(async () => new HttpRequestMessage(HttpMethod.Head, (await Directory())["newNonce"])); // Send stores the Replay-Nonce
         var nonce = _nonce;
         _nonce = null;
         return nonce;
@@ -132,9 +131,9 @@ class AcmeClient
     /// <summary>
     ///     Sends a JWS-signed POST. A null <paramref name="payload"/> sends a POST-as-GET. The account key is identified by
     ///     the JWK when creating the account, and by the account URL (kid) afterwards.</summary>
-    private async Task<HttpResponseMessage> Post(string url, object payload, bool useJwk = false, string accept = "application/json")
+    private Task<HttpResponseMessage> Post(string url, object payload, bool useJwk = false, string accept = "application/json")
     {
-        for (int attempt = 0; ; attempt++)
+        return Send(async () =>
         {
             var header = new Dictionary<string, object> { ["alg"] = "ES256", ["nonce"] = await TakeNonce(), ["url"] = url };
             if (useJwk)
@@ -149,16 +148,48 @@ class AcmeClient
             var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body) };
             request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/jose+json");
             request.Headers.Accept.ParseAdd(accept);
-            var response = await _http.SendAsync(request);
-            if (response.Headers.TryGetValues("Replay-Nonce", out var nonces))
-                _nonce = nonces.First();
-            if (response.IsSuccessStatusCode)
-                return response;
+            return request;
+        });
+    }
 
-            var error = await response.Content.ReadAsStringAsync();
-            if (attempt == 0 && error.Contains("urn:ietf:params:acme:error:badNonce"))
-                continue;
-            throw new AcmeException($"ACME request to {url} failed with HTTP {(int) response.StatusCode}: {error}");
+    /// <summary>
+    ///     Sends a request, retrying transient failures (connection errors, timeouts, HTTP 5xx) every 5 seconds for up to
+    ///     120 seconds. A bad nonce is retried immediately. The request is rebuilt for every attempt so that it carries a
+    ///     fresh nonce. Any other failure throws an <see cref="AcmeException"/> with the server's error.</summary>
+    private async Task<HttpResponseMessage> Send(Func<Task<HttpRequestMessage>> makeRequest)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(120);
+        var waited = false;
+        while (true)
+        {
+            HttpRequestMessage request = null;
+            string failure;
+            try
+            {
+                request = await makeRequest();
+                var response = await _http.SendAsync(request);
+                if (response.Headers.TryGetValues("Replay-Nonce", out var nonces))
+                    _nonce = nonces.First();
+                if (response.IsSuccessStatusCode)
+                    return response;
+                var error = await response.Content.ReadAsStringAsync();
+                if (error.Contains("urn:ietf:params:acme:error:badNonce") && DateTime.UtcNow < deadline)
+                    continue;
+                if ((int) response.StatusCode < 500)
+                    throw new AcmeException($"ACME request to {request.RequestUri} failed with HTTP {(int) response.StatusCode}: {error}");
+                failure = $"HTTP {(int) response.StatusCode}: {error}";
+            }
+            catch (Exception e) when (e is HttpRequestException || e is TaskCanceledException) // connection failure or timeout
+            {
+                failure = e.Message;
+            }
+
+            if (DateTime.UtcNow >= deadline)
+                throw new AcmeException($"ACME request to {request?.RequestUri} kept failing for 120 seconds. Last failure: {failure}");
+            if (!waited)
+                Console.WriteLine($"ACME request to {request?.RequestUri} failed: {failure} Retrying every 5 seconds for up to 120 seconds...");
+            waited = true;
+            await Task.Delay(5000);
         }
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace BasicLetsEncrypt;
@@ -10,18 +11,43 @@ namespace BasicLetsEncrypt;
 ///     gets the response; everything else gets an empty 404.</summary>
 class HttpChallengeServer : IDisposable
 {
-    private readonly HttpListener _listener = new();
+    private HttpListener _listener;
     private readonly string _domain;
     private readonly string _path;
     private readonly byte[] _response;
 
+    /// <summary>
+    ///     Starts listening on port 80. If the port is not available, retries every 5 seconds for up to 120 seconds before
+    ///     giving up.</summary>
     public HttpChallengeServer(string domain, string path, string keyAuthorization)
     {
         _domain = domain;
         _path = path;
         _response = Encoding.ASCII.GetBytes(keyAuthorization);
-        _listener.Prefixes.Add("http://+:80/");
-        _listener.Start();
+        var deadline = DateTime.UtcNow.AddSeconds(120);
+        var waited = false;
+        while (true)
+        {
+            _listener = new HttpListener();
+            _listener.Prefixes.Add("http://+:80/");
+            try
+            {
+                _listener.Start();
+                break;
+            }
+            catch (HttpListenerException e) when (e.ErrorCode != 5) // 5 = access denied: waiting won't help
+            {
+                _listener.Close();
+                if (DateTime.UtcNow >= deadline)
+                    throw new Exception($"Port 80 did not become available within 120 seconds: {e.Message}");
+                if (!waited)
+                    Console.WriteLine($"Port 80 is not available: {e.Message} Retrying every 5 seconds for up to 120 seconds...");
+                waited = true;
+                Thread.Sleep(5000);
+            }
+        }
+        if (waited)
+            Console.WriteLine("Port 80 is now available.");
         _ = Task.Run(Serve);
     }
 
